@@ -1,5 +1,6 @@
 node_modules/
 tmp/
+config/cookies.txt
 public/styles.css
 .DS_Store
 *.log

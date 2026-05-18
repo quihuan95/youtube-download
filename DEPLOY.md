@@ -190,7 +190,24 @@ fly scale memory 1024   # đủ RAM cho FFmpeg (nếu báo OOM)
 
 **Bắt buộc Runtime: Docker** (đọc `Dockerfile`) — **không** chọn Native Node.
 
-Lỗi `API rate limit exceeded` (GitHub): `youtube-dl-exec` cố tải yt-dlp khi `npm install`. Repo đã sửa — cài `yt-dlp` bằng `apt`, bỏ qua bước tải GitHub.
+Lỗi `API rate limit exceeded` (GitHub): Dockerfile cài yt-dlp qua `pip`, bỏ qua tải GitHub khi `npm install`.
+
+### Lỗi YouTube: "Sign in to confirm you're not a bot"
+
+YouTube **chặn IP datacenter** (Render, AWS, Fly…). Cách xử lý:
+
+**Cách A — Cookies (giữ Render):**
+
+1. Trên máy bạn, đăng nhập YouTube trên Chrome.
+2. Cài extension **Get cookies.txt LOCALLY** → export `youtube.com` → file `.txt`.
+3. Render → Service → **Environment** → **Add Secret**:
+   - Key: `YOUTUBE_COOKIES`
+   - Value: dán **toàn bộ** nội dung file cookies (định dạng Netscape).
+4. Redeploy.
+
+**Cách B — VPS / aaPanel (khuyên dùng):** IP thường ít bị chặn hơn Render free.
+
+**Cách C — Chỉ dùng local:** `npm run dev` trên máy nhà (IP residential).
 
 1. Vào https://render.com → đăng ký (GitHub).
 2. **New +** → **Blueprint** hoặc **Web Service**.

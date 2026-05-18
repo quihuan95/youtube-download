@@ -1,0 +1,4 @@
+# Export cookies YouTube (định dạng Netscape) bằng extension trình duyệt:
+# "Get cookies.txt LOCALLY" (Chrome/Firefox)
+# Đổi tên file thành cookies.txt và đặt vào thư mục config/
+# Hoặc dán nội dung vào biến YOUTUBE_COOKIES trên Render (Secret)

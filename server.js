@@ -1,5 +1,5 @@
 import express from 'express';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
@@ -43,12 +43,47 @@ app.use((req, _res, next) => {
 });
 app.use(express.static('public'));
 
-const YTDL_OPTS = {
-  noCheckCertificates: true,
-  noWarnings: true,
-  preferFreeFormats: true,
-  addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
-};
+const COOKIES_RUNTIME_PATH = join(TMP_DIR, 'youtube-cookies.txt');
+
+function initCookiesFile() {
+  if (process.env.YOUTUBE_COOKIES_PATH && existsSync(process.env.YOUTUBE_COOKIES_PATH)) {
+    return process.env.YOUTUBE_COOKIES_PATH;
+  }
+  const configPath = join(process.cwd(), 'config', 'cookies.txt');
+  if (existsSync(configPath)) return configPath;
+  const raw = process.env.YOUTUBE_COOKIES?.trim();
+  if (raw) {
+    writeFileSync(COOKIES_RUNTIME_PATH, raw, 'utf8');
+    return COOKIES_RUNTIME_PATH;
+  }
+  return null;
+}
+
+const cookiesFile = initCookiesFile();
+
+function getYtDlpOpts(extra = {}) {
+  const opts = {
+    noCheckCertificates: true,
+    noWarnings: true,
+    preferFreeFormats: true,
+    // Tránh client cũ / UA googlebot — YouTube hay chặn IP datacenter (Render)
+    extractorArgs: 'youtube:player_client=android_sdkless,web,tv_embedded,mweb',
+    ...extra,
+  };
+  if (cookiesFile) opts.cookies = cookiesFile;
+  return opts;
+}
+
+function formatYtError(err) {
+  const detail = err?.stderr || err?.message || String(err);
+  if (/sign in to confirm|not a bot|confirm you.?re not/i.test(detail)) {
+    return cookiesFile
+      ? 'YouTube vẫn chặn dù đã có cookies — thử export cookies mới hoặc deploy VPS.'
+      : 'YouTube chặn IP server (Render/AWS). Thêm cookies: biến YOUTUBE_COOKIES trên Render, hoặc deploy VPS/aaPanel. Chi tiết: DEPLOY.md';
+  }
+  if (err.message?.includes('quá')) return err.message;
+  return 'Không xử lý được video. Xem log server hoặc thử link khác.';
+}
 
 const YTDL_TIMEOUT_MS = 120_000;
 
@@ -176,11 +211,13 @@ app.post('/api/info', async (req, res) => {
 
   try {
     const info = await withTimeout(
-      youtubedl(url, {
-        ...YTDL_OPTS,
-        dumpSingleJson: true,
-        skipDownload: true,
-      }),
+      youtubedl(
+        url,
+        getYtDlpOpts({
+          dumpSingleJson: true,
+          skipDownload: true,
+        }),
+      ),
       YTDL_TIMEOUT_MS,
       'Lấy thông tin',
     );
@@ -204,11 +241,7 @@ app.post('/api/info', async (req, res) => {
   } catch (err) {
     const detail = err?.stderr || err?.message || String(err);
     log('yt-dlp LỖI:', detail);
-    res.status(500).json({
-      error: err.message?.includes('quá')
-        ? err.message
-        : 'Không lấy được thông tin video. Xem log terminal hoặc thử link khác.',
-    });
+    res.status(500).json({ error: formatYtError(err) });
   }
 });
 
@@ -228,11 +261,10 @@ app.post('/api/download', async (req, res) => {
 
   const id = randomUUID();
   const outTemplate = join(TMP_DIR, `${id}.%(ext)s`);
-  const opts = {
-    ...YTDL_OPTS,
+  const opts = getYtDlpOpts({
     output: outTemplate,
     noPlaylist: true,
-  };
+  });
 
   if (formatId) {
     opts.format = formatId;
@@ -293,9 +325,7 @@ app.post('/api/download', async (req, res) => {
   } catch (err) {
     log('yt-dlp LỖI tải:', err?.stderr || err.message);
     if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Tải thất bại. Video có thể bị giới hạn hoặc cần cập nhật yt-dlp.',
-      });
+      res.status(500).json({ error: formatYtError(err) });
     }
   }
 });
@@ -325,6 +355,7 @@ const server = app.listen(PORT, HOST, () => {
     log(`(Nội bộ: ${HOST}:${PORT} — Render/Fly dùng biến RENDER_EXTERNAL_URL / PUBLIC_URL)`);
   }
   log('yt-dlp:', ytDlpPath);
+  log('cookies:', cookiesFile ? 'có' : 'không (YouTube có thể chặn IP Render)');
 });
 
 server.on('error', (err) => {
