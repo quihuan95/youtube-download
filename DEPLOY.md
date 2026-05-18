@@ -200,10 +200,22 @@ YouTube **chặn IP datacenter** (Render, AWS, Fly…). Cách xử lý:
 
 1. Trên máy bạn, đăng nhập YouTube trên Chrome.
 2. Cài extension **Get cookies.txt LOCALLY** → export `youtube.com` → file `.txt`.
-3. Render → Service → **Environment** → **Add Secret**:
+3. Render → Service → **Environment** → **Add Secret** (chọn **một** cách):
+
+   **Cách 1 — Base64 (khuyên dùng, tránh hỏng TAB/xuống dòng):**
+   ```powershell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("cookies.txt"))
+   ```
+   - Key: `YOUTUBE_COOKIES_B64`
+   - Value: chuỗi base64 vừa in
+
+   **Cách 2 — Text thường:**
    - Key: `YOUTUBE_COOKIES`
-   - Value: dán **toàn bộ** nội dung file cookies (định dạng Netscape).
-4. Redeploy.
+   - Value: dán **toàn bộ** file (giữ dòng `# Netscape...` và các dòng `.youtube.com` + **TAB**)
+
+4. Redeploy. Log phải có: `cookies: có — N dòng` (N > 0).
+
+5. Kiểm tra: mở `https://xxx.onrender.com/api/health` → `"cookies": true`
 
 **Cách B — VPS / aaPanel (khuyên dùng):** IP thường ít bị chặn hơn Render free.
 

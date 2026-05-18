@@ -1,4 +1,9 @@
-# Export cookies YouTube (định dạng Netscape) bằng extension trình duyệt:
-# "Get cookies.txt LOCALLY" (Chrome/Firefox)
-# Đổi tên file thành cookies.txt và đặt vào thư mục config/
-# Hoặc dán nội dung vào biến YOUTUBE_COOKIES trên Render (Secret)
+# Export cookies YouTube (Netscape .txt) — extension "Get cookies.txt LOCALLY"
+#
+# Cách 1 — File trên VPS: đổi tên thành cookies.txt, đặt trong config/
+#
+# Cách 2 — Render env YOUTUBE_COOKIES: dán nguyên file (giữ xuống dòng + TAB)
+#
+# Cách 3 — Render env YOUTUBE_COOKIES_B64 (khuyên dùng, tránh hỏng TAB):
+#   PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("cookies.txt"))
+#   Dán chuỗi base64 vào Secret YOUTUBE_COOKIES_B64

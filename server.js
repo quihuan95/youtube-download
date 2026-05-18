@@ -1,5 +1,6 @@
 import express from 'express';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync, readFileSync } from 'fs';
+import { execSync } from 'child_process';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
@@ -45,44 +46,111 @@ app.use(express.static('public'));
 
 const COOKIES_RUNTIME_PATH = join(TMP_DIR, 'youtube-cookies.txt');
 
+function normalizeCookiesText(raw) {
+  let s = raw.trim();
+  if (s.includes('\\n') && !s.includes('\n')) {
+    s = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  }
+  return s;
+}
+
+function validateCookiesContent(content) {
+  if (!content.includes('.youtube.com')) {
+    return 'cookies thiếu domain .youtube.com';
+  }
+  const dataLines = content.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
+  if (dataLines.length === 0) return 'cookies không có dòng dữ liệu';
+  if (!dataLines[0].includes('\t')) {
+    return 'cookies sai định dạng (mất TAB) — export lại Netscape hoặc dùng YOUTUBE_COOKIES_B64';
+  }
+  return null;
+}
+
 function initCookiesFile() {
   if (process.env.YOUTUBE_COOKIES_PATH && existsSync(process.env.YOUTUBE_COOKIES_PATH)) {
     return process.env.YOUTUBE_COOKIES_PATH;
   }
   const configPath = join(process.cwd(), 'config', 'cookies.txt');
   if (existsSync(configPath)) return configPath;
-  const raw = process.env.YOUTUBE_COOKIES?.trim();
-  if (raw) {
-    writeFileSync(COOKIES_RUNTIME_PATH, raw, 'utf8');
-    return COOKIES_RUNTIME_PATH;
+
+  let raw = '';
+  if (process.env.YOUTUBE_COOKIES_B64?.trim()) {
+    try {
+      raw = Buffer.from(process.env.YOUTUBE_COOKIES_B64.trim(), 'base64').toString('utf8');
+    } catch {
+      log('WARN: YOUTUBE_COOKIES_B64 không decode được (base64 sai)');
+    }
+  } else if (process.env.YOUTUBE_COOKIES?.trim()) {
+    raw = process.env.YOUTUBE_COOKIES;
   }
-  return null;
+
+  if (!raw) return null;
+
+  const normalized = normalizeCookiesText(raw);
+  const invalid = validateCookiesContent(normalized);
+  if (invalid) {
+    log('WARN: cookies —', invalid);
+    return null;
+  }
+
+  writeFileSync(COOKIES_RUNTIME_PATH, normalized, 'utf8');
+  return COOKIES_RUNTIME_PATH;
 }
 
 const cookiesFile = initCookiesFile();
+
+function getYtDlpVersion() {
+  try {
+    return execSync(`"${ytDlpPath}" --version`, { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
 
 function getYtDlpOpts(extra = {}) {
   const opts = {
     noCheckCertificates: true,
     noWarnings: true,
     preferFreeFormats: true,
-    // Tránh client cũ / UA googlebot — YouTube hay chặn IP datacenter (Render)
-    extractorArgs: 'youtube:player_client=android_sdkless,web,tv_embedded,mweb',
     ...extra,
   };
-  if (cookiesFile) opts.cookies = cookiesFile;
+  if (cookiesFile) {
+    opts.cookies = cookiesFile;
+    opts.extractorArgs = 'youtube:player_client=web,ios,tv_embedded';
+  } else {
+    opts.extractorArgs = 'youtube:player_client=android_sdkless,web,tv_embedded,mweb';
+  }
   return opts;
 }
 
+function extractYtDlpDetail(err) {
+  const chunks = [err?.stderr, err?.stdout, err?.message];
+  if (err && typeof err === 'object') {
+    for (const key of ['stderr', 'stdout', 'status', 'signal', 'code']) {
+      if (err[key] != null) chunks.push(String(err[key]));
+    }
+  }
+  const text = chunks
+    .filter((c) => c && String(c).trim() && String(c).trim() !== 'Error')
+    .join('\n')
+    .trim();
+  if (text) return text.slice(0, 800);
+  return 'yt-dlp thất bại (không có stderr — kiểm tra cookies / phiên bản yt-dlp)';
+}
+
 function formatYtError(err) {
-  const detail = err?.stderr || err?.message || String(err);
+  const detail = extractYtDlpDetail(err);
   if (/sign in to confirm|not a bot|confirm you.?re not/i.test(detail)) {
     return cookiesFile
-      ? 'YouTube vẫn chặn dù đã có cookies — thử export cookies mới hoặc deploy VPS.'
-      : 'YouTube chặn IP server (Render/AWS). Thêm cookies: biến YOUTUBE_COOKIES trên Render, hoặc deploy VPS/aaPanel. Chi tiết: DEPLOY.md';
+      ? 'YouTube vẫn chặn dù đã có cookies — export cookies mới hoặc dùng YOUTUBE_COOKIES_B64.'
+      : 'YouTube chặn IP server (Render). Thêm YOUTUBE_COOKIES hoặc deploy VPS. Xem DEPLOY.md';
   }
-  if (err.message?.includes('quá')) return err.message;
-  return 'Không xử lý được video. Xem log server hoặc thử link khác.';
+  if (/cookies|netscape/i.test(detail)) {
+    return 'File cookies lỗi. Dùng YOUTUBE_COOKIES_B64 (base64) trên Render. Xem DEPLOY.md';
+  }
+  if (err?.message?.includes('quá')) return err.message;
+  const firstLine = detail.split('\n').find((l) => l.trim()) || detail;
+  return firstLine.slice(0, 300);
 }
 
 const YTDL_TIMEOUT_MS = 120_000;
@@ -199,7 +267,11 @@ function qualityToFormatString(quality, mode) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    cookies: Boolean(cookiesFile),
+    ytDlp: getYtDlpVersion(),
+  });
 });
 
 app.post('/api/info', async (req, res) => {
@@ -239,8 +311,7 @@ app.post('/api/info', async (req, res) => {
       audioFormats,
     });
   } catch (err) {
-    const detail = err?.stderr || err?.message || String(err);
-    log('yt-dlp LỖI:', detail);
+    log('yt-dlp LỖI:', extractYtDlpDetail(err));
     res.status(500).json({ error: formatYtError(err) });
   }
 });
@@ -323,7 +394,7 @@ app.post('/api/download', async (req, res) => {
     log(`yt-dlp: tải xong (${((Date.now() - t0) / 1000).toFixed(1)}s) — gửi file`);
     await pipeline(readStream, res);
   } catch (err) {
-    log('yt-dlp LỖI tải:', err?.stderr || err.message);
+    log('yt-dlp LỖI tải:', extractYtDlpDetail(err));
     if (!res.headersSent) {
       res.status(500).json({ error: formatYtError(err) });
     }
@@ -354,8 +425,13 @@ const server = app.listen(PORT, HOST, () => {
   if (publicUrl.includes('localhost')) {
     log(`(Nội bộ: ${HOST}:${PORT} — Render/Fly dùng biến RENDER_EXTERNAL_URL / PUBLIC_URL)`);
   }
-  log('yt-dlp:', ytDlpPath);
-  log('cookies:', cookiesFile ? 'có' : 'không (YouTube có thể chặn IP Render)');
+  log('yt-dlp:', ytDlpPath, getYtDlpVersion() ? `v${getYtDlpVersion()}` : '');
+  if (cookiesFile) {
+    const lines = readFileSync(cookiesFile, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
+    log('cookies: có —', lines.length, 'dòng');
+  } else {
+    log('cookies: không — YouTube có thể chặn IP Render');
+  }
 });
 
 server.on('error', (err) => {
