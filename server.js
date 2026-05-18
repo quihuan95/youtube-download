@@ -7,12 +7,26 @@ import { pipeline } from 'stream/promises';
 import youtubedlExec from 'youtube-dl-exec';
 
 function resolveYtDlpPath() {
-  if (process.env.YT_DLP_PATH) return process.env.YT_DLP_PATH;
-  const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp'];
-  for (const p of systemPaths) {
-    if (existsSync(p)) return p;
+  const candidates = [];
+  if (process.env.YT_DLP_PATH) candidates.push(process.env.YT_DLP_PATH);
+  candidates.push('/usr/local/bin/yt-dlp', '/usr/bin/yt-dlp');
+  candidates.push(youtubedlExec.constants.YOUTUBE_DL_PATH);
+
+  try {
+    const cmd = process.platform === 'win32' ? 'where yt-dlp' : 'command -v yt-dlp';
+    const found = execSync(cmd, { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find(Boolean);
+    if (found) candidates.unshift(found);
+  } catch {
+    /* not on PATH */
   }
-  return youtubedlExec.constants.YOUTUBE_DL_PATH;
+
+  for (const p of candidates) {
+    if (p && existsSync(p)) return p;
+  }
+  return process.env.YT_DLP_PATH || youtubedlExec.constants.YOUTUBE_DL_PATH;
 }
 
 const ytDlpPath = resolveYtDlpPath();
@@ -115,15 +129,24 @@ function getYtDlpOpts(extra = {}) {
     ...extra,
   };
   if (cookiesFile) {
-    opts.cookies = cookiesFile;
-    opts.extractorArgs = 'youtube:player_client=web,ios,tv_embedded';
-  } else {
+    if (!existsSync(cookiesFile)) {
+      log('WARN: cookies path không tồn tại:', cookiesFile);
+    } else {
+      opts.cookies = cookiesFile;
+      opts.extractorArgs = 'youtube:player_client=web,ios,tv_embedded';
+    }
+  }
+  if (!opts.cookies) {
     opts.extractorArgs = 'youtube:player_client=android_sdkless,web,tv_embedded,mweb';
   }
   return opts;
 }
 
 function extractYtDlpDetail(err) {
+  if (err?.code === 'ENOENT' || /ENOENT/i.test(err?.message || '')) {
+    const target = err?.path || ytDlpPath || 'yt-dlp / cookies';
+    return `ENOENT — không tìm thấy: ${target}. Kiểm tra yt-dlp đã cài (Docker rebuild) hoặc cookies (YOUTUBE_COOKIES_B64).`;
+  }
   const chunks = [err?.stderr, err?.stdout, err?.message];
   if (err && typeof err === 'object') {
     for (const key of ['stderr', 'stdout', 'status', 'signal', 'code']) {
@@ -417,6 +440,12 @@ function getPublicUrl() {
   if (fromEnv) return fromEnv.replace(/\/$/, '');
   if (HOST === '0.0.0.0' || HOST === '::') return `http://localhost:${PORT}`;
   return `http://${HOST}:${PORT}`;
+}
+
+if (!existsSync(ytDlpPath)) {
+  log('❌ ENOENT — không tìm thấy yt-dlp tại:', ytDlpPath);
+  log('Local: npm install (không set YOUTUBE_DL_SKIP_DOWNLOAD). Render: rebuild Docker image.');
+  process.exit(1);
 }
 
 const server = app.listen(PORT, HOST, () => {
