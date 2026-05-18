@@ -1,5 +1,13 @@
 const $ = (id) => document.getElementById(id);
 
+/** Rỗng = gọi API cùng domain (deploy Nginx/aaPanel/AWS). Khác domain thì set trong index.html */
+const API_BASE = (window.API_BASE || '').replace(/\/$/, '');
+const appOrigin = API_BASE || window.location.origin;
+
+function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
 const state = {
   url: '',
   title: '',
@@ -98,24 +106,23 @@ async function parseJsonResponse(res) {
   } catch {
     if (location.protocol === 'file:') {
       throw new Error(
-        'Bạn đang mở file HTML trực tiếp. Hãy chạy "npm run dev" rồi mở http://localhost:3008',
+        `Bạn đang mở file HTML trực tiếp. Mở qua server: ${appOrigin}`,
       );
     }
     throw new Error(
-      'Không kết nối được server. Chạy "npm run dev" trong thư mục project, rồi mở http://localhost:3008',
+      `Không kết nối được API tại ${appOrigin}. Kiểm tra server đang chạy.`,
     );
   }
 }
 
 async function checkServer() {
   try {
-    const res = await fetch('/api/health');
+    const res = await fetch(apiUrl('/api/health'));
     if (!res.ok) throw new Error();
-    els.serverStatus.textContent = '● Server sẵn sàng · http://localhost:3008';
+    els.serverStatus.textContent = `● Server sẵn sàng · ${appOrigin}`;
     els.serverStatus.className = 'mt-3 text-xs text-emerald-500/90';
   } catch {
-    els.serverStatus.textContent =
-      '● Chưa kết nối server — chạy: npm run dev → mở http://localhost:3008';
+    els.serverStatus.textContent = `● Chưa kết nối API · ${appOrigin}`;
     els.serverStatus.className = 'mt-3 text-xs text-amber-400';
   }
 }
@@ -171,7 +178,7 @@ async function fetchInfo() {
   els.url.classList.add('ring-2', 'ring-accent/30');
 
   try {
-    const res = await fetchWithTimeout('/api/info', {
+    const res = await fetchWithTimeout(apiUrl('/api/info'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -261,7 +268,7 @@ async function download() {
   try {
     setFetchStatus('Đang tải file — có thể vài phút, xem log terminal...');
     const res = await fetchWithTimeout(
-      '/api/download',
+      apiUrl('/api/download'),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -13,6 +13,18 @@ const TMP_DIR = join(process.cwd(), 'tmp');
 if (!existsSync(TMP_DIR)) mkdirSync(TMP_DIR, { recursive: true });
 
 app.use(express.json());
+
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
+app.use((req, res, next) => {
+  if (CORS_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use((req, _res, next) => {
   if (req.path.startsWith('/api/')) log('→', req.method, req.path);
   next();
