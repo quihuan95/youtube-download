@@ -1,0 +1,11 @@
+node_modules
+tmp
+.git
+.gitignore
+*.md
+.env
+.env.*
+Dockerfile
+fly.toml
+render.yaml
+scripts/dev.mjs

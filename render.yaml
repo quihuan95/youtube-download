@@ -1,0 +1,16 @@
+# Render.com — dễ deploy nhưng free tier timeout ~30s, tải video dài dễ lỗi.
+# Khuyên dùng Fly.io hoặc VPS (xem DEPLOY.md).
+services:
+  - type: web
+    name: tool-video
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: HOST
+        value: 0.0.0.0
