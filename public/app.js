@@ -2,7 +2,9 @@ const $ = (id) => document.getElementById(id);
 
 /** Rỗng = gọi API cùng domain (deploy Nginx/aaPanel/AWS). Khác domain thì set trong index.html */
 const API_BASE = (window.API_BASE || '').replace(/\/$/, '');
-const appOrigin = API_BASE || window.location.origin;
+/** URL hiển thị = địa chỉ trên thanh trình duyệt (Render, VPS, local…) */
+const appOrigin = window.location.origin;
+const apiOrigin = API_BASE || appOrigin;
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -81,7 +83,7 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
     return await fetch(url, { ...options, signal: ctrl.signal });
   } catch (err) {
     if (err.name === 'AbortError') {
-      throw new Error(`Quá ${timeoutMs / 1000}s không phản hồi. Kiểm tra terminal (npm run dev) còn chạy không.`);
+      throw new Error(`Quá ${timeoutMs / 1000}s không phản hồi. Kiểm tra server tại ${apiOrigin}`);
     }
     throw err;
   } finally {

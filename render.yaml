@@ -19,3 +19,4 @@ services:
         value: "1"
       - key: YT_DLP_PATH
         value: /usr/bin/yt-dlp
+      # RENDER_EXTERNAL_URL do Render tự gán — server log hiện đúng URL public

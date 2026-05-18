@@ -308,11 +308,23 @@ function formatDuration(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function getPublicUrl() {
+  const fromEnv =
+    process.env.RENDER_EXTERNAL_URL ||
+    process.env.PUBLIC_URL ||
+    (process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : '');
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+  if (HOST === '0.0.0.0' || HOST === '::') return `http://localhost:${PORT}`;
+  return `http://${HOST}:${PORT}`;
+}
+
 const server = app.listen(PORT, HOST, () => {
-  const shown = HOST === '0.0.0.0' ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
-  log(`Tool Video sẵn sàng → ${shown}`);
+  const publicUrl = getPublicUrl();
+  log(`Tool Video sẵn sàng → ${publicUrl}`);
+  if (publicUrl.includes('localhost')) {
+    log(`(Nội bộ: ${HOST}:${PORT} — Render/Fly dùng biến RENDER_EXTERNAL_URL / PUBLIC_URL)`);
+  }
   log('yt-dlp:', ytDlpPath);
-  log('Dán link trên web — mỗi request sẽ hiện log ở đây');
 });
 
 server.on('error', (err) => {
