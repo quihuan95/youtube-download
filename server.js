@@ -128,18 +128,49 @@ function getYtDlpOpts(extra = {}) {
     preferFreeFormats: true,
     ...extra,
   };
-  if (cookiesFile) {
-    if (!existsSync(cookiesFile)) {
-      log('WARN: cookies path không tồn tại:', cookiesFile);
-    } else {
-      opts.cookies = cookiesFile;
-      opts.extractorArgs = 'youtube:player_client=web,ios,tv_embedded';
-    }
-  }
-  if (!opts.cookies) {
+  if (cookiesFile && existsSync(cookiesFile)) {
+    opts.cookies = cookiesFile;
+    opts.extractorArgs = 'youtube:player_client=web,ios,tv_embedded';
+  } else {
     opts.extractorArgs = 'youtube:player_client=android_sdkless,web,tv_embedded,mweb';
   }
   return opts;
+}
+
+/** Lấy metadata — không chọn chất lượng, không preferFreeFormats (tránh lỗi format khi chỉ bấm "Lấy thông tin") */
+const INFO_PLAYER_CLIENTS = [
+  'youtube:player_client=android_sdkless,web,tv_embedded,mweb',
+  'youtube:player_client=web,ios,tv_embedded',
+  'youtube:player_client=mweb,web',
+  null,
+];
+
+async function fetchVideoInfo(url) {
+  const base = {
+    dumpSingleJson: true,
+    skipDownload: true,
+    noCheckCertificates: true,
+    noWarnings: true,
+    noPlaylist: true,
+  };
+  if (cookiesFile && existsSync(cookiesFile)) base.cookies = cookiesFile;
+
+  let lastErr;
+  for (let i = 0; i < INFO_PLAYER_CLIENTS.length; i++) {
+    const client = INFO_PLAYER_CLIENTS[i];
+    const opts = { ...base };
+    if (client) opts.extractorArgs = client;
+    try {
+      return await youtubedl(url, opts);
+    } catch (err) {
+      lastErr = err;
+      const detail = extractYtDlpDetail(err);
+      const retryable = /format is not available|not a bot|sign in to confirm|unable to extract/i.test(detail);
+      if (!retryable || i === INFO_PLAYER_CLIENTS.length - 1) throw err;
+      log('yt-dlp info: thử client khác...', client || 'mặc định');
+    }
+  }
+  throw lastErr;
 }
 
 function extractYtDlpDetail(err) {
@@ -161,10 +192,13 @@ function extractYtDlpDetail(err) {
   return 'yt-dlp thất bại (không có stderr — kiểm tra cookies / phiên bản yt-dlp)';
 }
 
-function formatYtError(err) {
+function formatYtError(err, phase = 'download') {
   const detail = extractYtDlpDetail(err);
   if (/Requested format is not available|format is not available/i.test(detail)) {
-    return 'Chất lượng/format này không có cho video. Chọn "Tốt nhất" hoặc thử lại (server sẽ tự fallback).';
+    if (phase === 'info') {
+      return 'YouTube không trả metadata từ server (Render). Không liên quan chất lượng bạn chọn — thử chạy local (npm run dev) hoặc VPS.';
+    }
+    return 'Chất lượng/format này không có cho video. Chọn "Tốt nhất" hoặc thử lại.';
   }
   if (/sign in to confirm|not a bot|confirm you.?re not/i.test(detail)) {
     return cookiesFile
@@ -330,17 +364,7 @@ app.post('/api/info', async (req, res) => {
   log('yt-dlp: lấy thông tin...', url);
 
   try {
-    const info = await withTimeout(
-      youtubedl(
-        url,
-        getYtDlpOpts({
-          dumpSingleJson: true,
-          skipDownload: true,
-        }),
-      ),
-      YTDL_TIMEOUT_MS,
-      'Lấy thông tin',
-    );
+    const info = await withTimeout(fetchVideoInfo(url), YTDL_TIMEOUT_MS, 'Lấy thông tin');
 
     const duration = info.duration || 0;
     const videoFormats = pickFormats(info.formats, 'video');
@@ -360,7 +384,7 @@ app.post('/api/info', async (req, res) => {
     });
   } catch (err) {
     log('yt-dlp LỖI:', extractYtDlpDetail(err));
-    res.status(500).json({ error: formatYtError(err) });
+    res.status(500).json({ error: formatYtError(err, 'info') });
   }
 });
 
