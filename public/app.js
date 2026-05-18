@@ -51,7 +51,6 @@ const els = {
 const FETCH_TIMEOUT_MS = 120_000;
 
 const YT_RE = /(?:youtube\.com|youtu\.be)/i;
-let autoFetchTimer = null;
 
 function isYoutubeUrl(s) {
   return YT_RE.test(s || '');
@@ -149,16 +148,6 @@ function populateFormatSelect() {
     els.formatId.appendChild(opt);
   });
   els.formatIdBlock.classList.toggle('hidden', formats.length === 0);
-}
-
-function scheduleAutoFetch() {
-  clearTimeout(autoFetchTimer);
-  const url = els.url.value.trim();
-  if (!isYoutubeUrl(url)) return;
-
-  autoFetchTimer = setTimeout(() => {
-    if (els.url.value.trim() === url) fetchInfo();
-  }, 400);
 }
 
 async function fetchInfo() {
@@ -324,10 +313,6 @@ els.url.addEventListener('keydown', (e) => {
     e.preventDefault();
     fetchInfo();
   }
-});
-els.url.addEventListener('input', scheduleAutoFetch);
-els.url.addEventListener('paste', () => {
-  setTimeout(scheduleAutoFetch, 50);
 });
 els.btnDownload.addEventListener('click', download);
 
