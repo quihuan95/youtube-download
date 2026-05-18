@@ -163,6 +163,9 @@ function extractYtDlpDetail(err) {
 
 function formatYtError(err) {
   const detail = extractYtDlpDetail(err);
+  if (/Requested format is not available|format is not available/i.test(detail)) {
+    return 'Chất lượng/format này không có cho video. Chọn "Tốt nhất" hoặc thử lại (server sẽ tự fallback).';
+  }
   if (/sign in to confirm|not a bot|confirm you.?re not/i.test(detail)) {
     return cookiesFile
       ? 'YouTube vẫn chặn dù đã có cookies — export cookies mới hoặc dùng YOUTUBE_COOKIES_B64.'
@@ -269,23 +272,45 @@ function pickFormats(formats, type) {
 }
 
 function qualityToFormatString(quality, mode) {
-  if (mode === 'mp3') return 'bestaudio/best';
+  const fb = '/bestvideo*+bestaudio/bestvideo+bestaudio/best';
+  if (mode === 'mp3') return 'bestaudio*/bestaudio/best';
   switch (quality) {
     case '2160':
-      return 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
+      return `bestvideo[height<=2160]+bestaudio/best[height<=2160]${fb}`;
     case '1440':
-      return 'bestvideo[height<=1440]+bestaudio/best[height<=1440]';
+      return `bestvideo[height<=1440]+bestaudio/best[height<=1440]${fb}`;
     case '1080':
-      return 'bestvideo[height<=1080]+bestaudio/best[height<=1080]';
+      return `bestvideo[height<=1080]+bestaudio/best[height<=1080]${fb}`;
     case '720':
-      return 'bestvideo[height<=720]+bestaudio/best[height<=720]';
+      return `bestvideo[height<=720]+bestaudio/best[height<=720]${fb}`;
     case '480':
-      return 'bestvideo[height<=480]+bestaudio/best[height<=480]';
+      return `bestvideo[height<=480]+bestaudio/best[height<=480]${fb}`;
     case '360':
-      return 'bestvideo[height<=360]+bestaudio/best[height<=360]';
+      return `bestvideo[height<=360]+bestaudio/best[height<=360]${fb}`;
     case 'best':
     default:
-      return 'bestvideo+bestaudio/best';
+      return `bestvideo*+bestaudio/bestvideo+bestaudio/best`;
+  }
+}
+
+function isFormatUnavailableError(err) {
+  return /Requested format is not available|format is not available/i.test(extractYtDlpDetail(err));
+}
+
+async function runYtDlp(url, opts, { mode = 'video' } = {}) {
+  try {
+    return await youtubedl(url, opts);
+  } catch (err) {
+    if (!isFormatUnavailableError(err)) throw err;
+    log('yt-dlp: format không khả dụng, thử fallback best...');
+    const fallback = { ...opts };
+    if (mode === 'mp3') {
+      fallback.format = 'bestaudio/best';
+    } else {
+      fallback.format = 'best';
+      fallback.mergeOutputFormat = 'mp4';
+    }
+    return youtubedl(url, fallback);
   }
 }
 
@@ -361,9 +386,12 @@ app.post('/api/download', async (req, res) => {
   });
 
   if (formatId) {
-    opts.format = formatId;
+    opts.format =
+      mode === 'mp3'
+        ? `${formatId}/bestaudio/best`
+        : `${formatId}+bestaudio/bestvideo*+bestaudio/best`;
   } else if (mode === 'mp3') {
-    opts.format = 'bestaudio/best';
+    opts.format = 'bestaudio*/bestaudio/best';
     opts.extractAudio = true;
     opts.audioFormat = 'mp3';
     opts.audioQuality = '0';
@@ -383,7 +411,7 @@ app.post('/api/download', async (req, res) => {
   log('yt-dlp: đang tải...', url, mode, quality);
 
   try {
-    await withTimeout(youtubedl(url, opts), YTDL_TIMEOUT_MS * 3, 'Tải video');
+    await withTimeout(runYtDlp(url, opts, { mode }), YTDL_TIMEOUT_MS * 3, 'Tải video');
 
     const { readdirSync } = await import('fs');
     const files = readdirSync(TMP_DIR).filter((f) => f.startsWith(id));
