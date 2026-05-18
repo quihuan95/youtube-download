@@ -4,6 +4,7 @@ services:
   - type: web
     name: tool-video
     runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
     region: singapore
     healthCheckPath: /api/health
@@ -14,3 +15,7 @@ services:
         value: 3000
       - key: HOST
         value: 0.0.0.0
+      - key: YOUTUBE_DL_SKIP_DOWNLOAD
+        value: "1"
+      - key: YT_DLP_PATH
+        value: /usr/bin/yt-dlp

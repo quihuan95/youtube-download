@@ -3,7 +3,19 @@ import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
-import youtubedl from 'youtube-dl-exec';
+import youtubedlExec from 'youtube-dl-exec';
+
+function resolveYtDlpPath() {
+  if (process.env.YT_DLP_PATH) return process.env.YT_DLP_PATH;
+  const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp'];
+  for (const p of systemPaths) {
+    if (existsSync(p)) return p;
+  }
+  return youtubedlExec.constants.YOUTUBE_DL_PATH;
+}
+
+const ytDlpPath = resolveYtDlpPath();
+const youtubedl = youtubedlExec.create(ytDlpPath);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3008;
@@ -299,6 +311,7 @@ function formatDuration(sec) {
 const server = app.listen(PORT, HOST, () => {
   const shown = HOST === '0.0.0.0' ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
   log(`Tool Video sẵn sàng → ${shown}`);
+  log('yt-dlp:', ytDlpPath);
   log('Dán link trên web — mỗi request sẽ hiện log ở đây');
 });
 

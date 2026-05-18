@@ -188,14 +188,21 @@ fly scale memory 1024   # đủ RAM cho FFmpeg (nếu báo OOM)
 
 ## Cách 3: Render.com (dễ, hạn chế)
 
+**Bắt buộc Runtime: Docker** (đọc `Dockerfile`) — **không** chọn Native Node.
+
+Lỗi `API rate limit exceeded` (GitHub): `youtube-dl-exec` cố tải yt-dlp khi `npm install`. Repo đã sửa — cài `yt-dlp` bằng `apt`, bỏ qua bước tải GitHub.
+
 1. Vào https://render.com → đăng ký (GitHub).
 2. **New +** → **Blueprint** hoặc **Web Service**.
 3. Connect repo GitHub → chọn repo `tool-video`.
 4. **Runtime: Docker** (Render đọc `Dockerfile`).
 5. Region: **Singapore**.
 6. Plan: **Free** → Create.
+7. Push code mới → **Manual Deploy** (hoặc auto deploy từ GitHub).
 
 Sau khi deploy, mở URL `https://xxx.onrender.com`.
+
+Nếu vẫn lỗi GitHub khi build: thêm env `GITHUB_TOKEN` (Personal Access Token, quyền read).
 
 **Hạn chế free Render:**
 
